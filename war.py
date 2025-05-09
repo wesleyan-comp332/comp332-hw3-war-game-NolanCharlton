@@ -1,178 +1,207 @@
 """
+Nolan Charlton
+Comp 332
 war card game client and server
 """
-import asyncio
-from collections import namedtuple
-from enum import Enum
-import logging
-import random
 import socket
-import socketserver
-import threading
+import random
 import sys
 
+def create_deck():
+    """""
+    52 card deck creation and categorization
+    """""
+    suits = ["C", "D", "H", "S"]
+    ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
+    return [rank + suit for suit in suits for rank in ranks]
 
-"""
-Namedtuples work like classes, but are much more lightweight so they end
-up being faster. It would be a good idea to keep objects in each of these
-for each game which contain the game's state, for instance things like the
-socket, the cards given, the cards still available, etc.
-"""
-Game = namedtuple("Game", ["p1", "p2"])
+def deal_cards(deck):
+    """
+    Random distribution of cards into two even decks
+    """
+    random.shuffle(deck)
+    return deck[:26], deck[26:]
 
-# Stores the clients waiting to get connected to other clients
-waiting_clients = []
+def handle_round(conn1, conn2, deck1, deck2):
+    """
+    One round of the game, exchanges and compares each players card, then updates both decks
+    """
+    conn1.send(deck1.pop(0).encode())
+    conn2.send(deck2.pop(0).encode())
+    card1 = conn1.recv(1024).decode()
+    card2 = conn2.recv(1024).decode()
 
+    if card1 and card2:
+        rank1 = "23456789TJQKA".index(card1[0])
+        rank2 = "23456789TJQKA".index(card2[0])
 
-class Command(Enum):
-    """
-    The byte values sent as the first byte of any message in the war protocol.
-    """
-    WANTGAME = 0
-    GAMESTART = 1
-    PLAYCARD = 2
-    PLAYRESULT = 3
-
-
-class Result(Enum):
-    """
-    The byte values sent as the payload byte of a PLAYRESULT message.
-    """
-    WIN = 0
-    DRAW = 1
-    LOSE = 2
-
-def readexactly(sock, numbytes):
-    """
-    Accumulate exactly `numbytes` from `sock` and return those. If EOF is found
-    before numbytes have been received, be sure to account for that here or in
-    the caller.
-    """
-    # TODO
-    pass
-
-
-def kill_game(game):
-    """
-    TODO: If either client sends a bad message, immediately nuke the game.
-    """
-    pass
-
-
-def compare_cards(card1, card2):
-    """
-    TODO: Given an integer card representation, return -1 for card1 < card2,
-    0 for card1 = card2, and 1 for card1 > card2
-    """
-    pass
-    
-
-def deal_cards():
-    """
-    TODO: Randomize a deck of cards (list of ints 0..51), and return two
-    26 card "hands."
-    """
-    pass
-    
-
-def serve_game(host, port):
-    """
-    TODO: Open a socket for listening for new connections on host:port, and
-    perform the war protocol to serve a game of war between each client.
-    This function should run forever, continually serving clients.
-    """
-    pass
-    
-
-async def limit_client(host, port, loop, sem):
-    """
-    Limit the number of clients currently executing.
-    You do not need to change this function.
-    """
-    async with sem:
-        return await client(host, port, loop)
-
-async def client(host, port, loop):
-    """
-    Run an individual client on a given event loop.
-    You do not need to change this function.
-    """
-    try:
-        reader, writer = await asyncio.open_connection(host, port)
-        # send want game
-        writer.write(b"\0\0")
-        card_msg = await reader.readexactly(27)
-        myscore = 0
-        for card in card_msg[1:]:
-            writer.write(bytes([Command.PLAYCARD.value, card]))
-            result = await reader.readexactly(2)
-            if result[1] == Result.WIN.value:
-                myscore += 1
-            elif result[1] == Result.LOSE.value:
-                myscore -= 1
-        if myscore > 0:
-            result = "won"
-        elif myscore < 0:
-            result = "lost"
+        if rank1 > rank2:
+            deck1.extend([card1, card2])
+            return 1
+        elif rank2 > rank1:
+            deck2.extend([card1, card2])
+            return 2
         else:
-            result = "drew"
-        logging.debug("Game complete, I %s", result)
-        writer.close()
-        return 1
-    except ConnectionResetError:
-        logging.error("ConnectionResetError")
-        return 0
-    except asyncio.streams.IncompleteReadError:
-        logging.error("asyncio.streams.IncompleteReadError")
-        return 0
-    except OSError:
-        logging.error("OSError")
-        return 0
+            return handle_war(conn1, conn2, deck1, deck2)
+    return 0
 
-def main(args):
+def handle_war(conn1, conn2, deck1, deck2):
     """
-    launch a client/server
+    Resolves the "War" condition with a 3 card duel
     """
-    host = args[1]
-    port = int(args[2])
-    if args[0] == "server":
-        try:
-            # your server should serve clients until the user presses ctrl+c
-            serve_game(host, port)
-        except KeyboardInterrupt:
-            pass
-        return
+    if len(deck1) < 4 or len(deck2) < 4:
+        if len(deck1) <= len(deck2):
+            deck2.extend(deck1)
+            deck1.clear()
+            return 2
+        else:
+            deck1.extend(deck2)
+            deck2.clear()
+            return 1
+
+    conn1.send("WAR".encode())
+    conn2.send("WAR".encode())
+
+    war_cards1 = [deck1.pop(0) for _ in range(3)]
+    war_cards2 = [deck2.pop(0) for _ in range(3)]
+
+    conn1.send(deck1.pop(0).encode())
+    conn2.send(deck2.pop(0).encode())
+    card1 = conn1.recv(1024).decode()
+    card2 = conn2.recv(1024).decode()
+
+    if card1 and card2:
+        rank1 = "23456789TJQKA".index(card1[0])
+        rank2 = "23456789TJQKA".index(card2[0])
+
+        if rank1 > rank2:
+            deck1.extend(war_cards1 + war_cards2 + [card1, card2])
+            return 1
+        elif rank2 > rank1:
+            deck2.extend(war_cards1 + war_cards2 + [card1, card2])
+            return 2
+        else:
+            return handle_war(conn1, conn2, deck1, deck2)
+    return 0
+
+def run_server(host, port):
+    """
+    Starts the server, accepts two client connections, and runs the War game
+    """
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind((host, port))
+    server_socket.listen(2)
+
+    print(f"Server started on {host}:{port}, waiting for 2 players to connect...")
+
+    conn1, addr1 = server_socket.accept()
+    print(f"Player 1 connected from {addr1}")
+    conn2, addr2 = server_socket.accept()
+    print(f"Player 2 connected from {addr2}")
+
+    deck = create_deck()
+    deck1, deck2 = deal_cards(deck)
+
+    conn1.send("Start".encode())
+    conn2.send("Start".encode())
+
+    round_max = 1000
+    round_count = 0
+
+    while deck1 and deck2 and round_count < round_max:
+        round_count += 1
+        winner = handle_round(conn1, conn2, deck1, deck2)
+
+        if winner == 1:
+            conn1.send("WIN".encode())
+            conn2.send("LOSE".encode())
+        elif winner == 2:
+            conn1.send("LOSE".encode())
+            conn2.send("WIN".encode())
+        else:
+            conn1.send("TIE".encode())
+            conn2.send("TIE".encode())
+
+    if round_count >= round_max:
+        if len(deck1) > len(deck2):
+            conn1.send("WINNER".encode())
+            conn2.send("GAMEOVER".encode())
+            print("Player 1 wins by card count!")
+        elif len(deck2) > len(deck1):
+            conn1.send("GAMEOVER".encode())
+            conn2.send("WINNER".encode())
+            print("Player 2 wins by card count!")
+        else:
+            conn1.send("DRAW".encode())
+            conn2.send("DRAW".encode())
+            print("Game ends in a draw!")
+    elif not deck1:
+        conn1.send("GAMEOVER".encode())
+        conn2.send("WINNER".encode())
+        print("Player 2 wins!")
     else:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-        
-        asyncio.set_event_loop(loop)
-        
-    if args[0] == "client":
-        loop.run_until_complete(client(host, port, loop))
-    elif args[0] == "clients":
-        sem = asyncio.Semaphore(1000)
-        num_clients = int(args[3])
-        clients = [limit_client(host, port, loop, sem)
-                   for x in range(num_clients)]
-        async def run_all_clients():
-            """
-            use `as_completed` to spawn all clients simultaneously
-            and collect their results in arbitrary order.
-            """
-            completed_clients = 0
-            for client_result in asyncio.as_completed(clients):
-                completed_clients += await client_result
-            return completed_clients
-        res = loop.run_until_complete(
-            asyncio.Task(run_all_clients(), loop=loop))
-        logging.info("%d completed clients", res)
+        conn1.send("WINNER".encode())
+        conn2.send("GAMEOVER".encode())
+        print("Player 1 wins!")
 
-    loop.close()
+    conn1.close()
+    conn2.close()
+    server_socket.close()
+
+def run_client(host, port):
+    """
+    Connect client to server as a player and recieve outcome
+    """
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.connect((host, port))
+
+    print("Connected to server. Waiting for game to start...")
+
+    start_message = client_socket.recv(1024).decode()
+    if start_message == "Start":
+        while True:
+            card = client_socket.recv(1024).decode()
+
+            if card == "GAMEOVER":
+                print("You lose!")
+                break
+            elif card == "WINNER":
+                print("You win!")
+                break
+            elif card == "DRAW":
+                print("Stalemate occured! The game ended in a draw!")
+                break
+            elif card == "TIE" or card == "WAR":
+                continue
+            else:
+                client_socket.send(card.encode())
+                result = client_socket.recv(1024).decode()
+                if result == "WIN":
+                    print("You win the round!")
+                elif result == "LOSE":
+                    print("You lose the round.")
+                elif result == "TIE":
+                    print("Round was a tie.")
+
+    client_socket.close()
 
 if __name__ == "__main__":
-    # Changing logging to DEBUG
-    logging.basicConfig(level=logging.DEBUG)
-    main(sys.argv[1:])
+    if len(sys.argv) != 4:
+        print("Please format as: python3 war_game.py server/client <host> <port>")
+        sys.exit(1)
+
+    role = sys.argv[1]
+    host = sys.argv[2]
+    try:
+        port = int(sys.argv[3])
+    except ValueError:
+        print("Error: Port argument needs to be an integer.")
+        sys.exit(1)
+
+    if role == "server":
+        run_server(host, port)
+    elif role == "client":
+        run_client(host, port)
+    else:
+        print("Error: First argument needs to be 'server' or 'client'.")
+        sys.exit(1)
