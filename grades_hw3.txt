@@ -1,0 +1,20 @@
+1: Two clients rarely complete a successful game with the server.
+Code has lot of bugs
+Encountered the following errors
+1) conn1.send(deck1.pop(0).encode())
+BrokenPipeError: [Errno 32] Broken pipe
+
+2) rank2 = "23456789TJQKA".index(card2[0])
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: substring not found
+
+3)  result = client_socket.recv(1024).decode()
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+ConnectionResetError: [Errno 104] Connection reset by peer
+
+Code does not work with laggy client
+Code handles two clients in rare scenarios
+2: The server correctly handled a game with a buggy client, and continued functioning as expected afterwards.
+3: Successfully completed multiple games at the same time.
+
+Total points: 70
